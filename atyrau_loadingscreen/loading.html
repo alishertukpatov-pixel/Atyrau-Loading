@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Atyrau RP</title>
+<style>
+  :root { --accent:#e03b3b; --bg:#0b0d12; --text:#e8eaf0; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { width:100%; height:100%; overflow:hidden; background:var(--bg); color:var(--text);
+    font-family:"Segoe UI",Arial,sans-serif; }
+
+  /* ---------- Фоны ---------- */
+  #slides { position:fixed; inset:0; overflow:hidden; background:#000; }
+  .slide { position:absolute; inset:0; background-position:center; background-size:cover;
+           background-repeat:no-repeat; opacity:0; transform-origin:center center;
+           will-change:transform,opacity; }
+  #shade { position:fixed; inset:0; z-index:1; pointer-events:none;
+           background:linear-gradient(rgba(0,0,0,.45),rgba(0,0,0,.25) 40%,rgba(0,0,0,.85)); }
+
+  /* ---------- Контент ---------- */
+  .wrap { position:relative; z-index:2; height:100%; display:flex; flex-direction:column;
+          justify-content:space-between; padding:48px 64px; }
+  h1 { font-size:72px; letter-spacing:6px; text-transform:uppercase; font-weight:800;
+       text-shadow:0 4px 24px rgba(0,0,0,.7); }
+  h1 span { color:var(--accent); }
+  .sub { opacity:.8; margin-top:8px; font-size:20px; text-shadow:0 2px 10px rgba(0,0,0,.8); }
+  .info { display:flex; gap:32px; margin-top:24px; font-size:16px; opacity:.9;
+          text-shadow:0 2px 8px rgba(0,0,0,.8); }
+  .info b { color:var(--accent); }
+  .rules { margin-top:32px; max-width:520px; line-height:1.7; font-size:16px; opacity:.9;
+           text-shadow:0 2px 8px rgba(0,0,0,.8); }
+  .rules li { margin-left:20px; }
+  .bottom { width:100%; }
+  #status { font-size:16px; margin-bottom:10px; opacity:.9; min-height:22px;
+            text-shadow:0 2px 8px rgba(0,0,0,.8); }
+  .bar { width:100%; height:10px; background:rgba(255,255,255,.15); border-radius:6px; overflow:hidden; }
+  #fill { height:100%; width:0%; background:var(--accent); transition:width .3s ease;
+          box-shadow:0 0 14px var(--accent); }
+  #pct { text-align:right; margin-top:8px; font-size:14px; opacity:.75; }
+</style>
+</head>
+<body>
+<div id="slides"></div>
+<div id="shade"></div>
+
+<div class="wrap">
+  <div>
+    <h1>Atyrau <span>Rp</span></h1>
+    <div class="sub">Добро пожаловать на сервер!</div>
+    <div class="info">
+      <div>Карта: <b id="map">—</b></div>
+      <div>Игроков: <b id="players">—</b></div>
+      <div>Игрок: <b id="steamid">—</b></div>
+    </div>
+    <ul class="rules">
+      <li>Уважай других игроков</li>
+      <li>Не используй баги и читы</li>
+      <li>Слушай администрацию</li>
+    </ul>
+  </div>
+  <div class="bottom">
+    <div id="status">Подключение...</div>
+    <div class="bar"><div id="fill"></div></div>
+    <div id="pct">0%</div>
+  </div>
+</div>
+
+<audio id="music" preload="auto"></audio>
+
+<script>
+  /* ================= НАСТРОЙКИ ================= */
+  var BACKGROUNDS = ["bg/bg1.jpg", "bg/bg2.jpg", "bg/bg3.jpg"];
+  var SLIDE_TIME  = 15000;  // смена фона каждые 15 секунд
+  var FADE_TIME   = 2000;   // плавность перехода между фонами, мс
+  var ZOOM_TO     = 1.14;   // насколько приближается фон (1.14 = +14%)
+  var PLAYLIST    = [       // треки играют по очереди и по кругу
+    ["music/track1.mp3", "music/track1.ogg"],
+    ["music/track2.mp3", "music/track2.ogg"]
+  ];
+  var VOLUME      = 0.35;
+  /* ============================================= */
+
+  /* ---------- Фоны: смена + очень плавное приближение ---------- */
+  var slidesBox = document.getElementById("slides");
+  var slides = BACKGROUNDS.map(function (src) {
+    var d = document.createElement("div");
+    d.className = "slide";
+    d.style.backgroundImage = 'url("' + src + '")';
+    slidesBox.appendChild(d);
+    return d;
+  });
+  var current = -1;
+  var zoomDuration = SLIDE_TIME + FADE_TIME * 2;   // зум идёт и пока фон появляется, и пока уходит
+
+  function show(i) {
+    var next = slides[i];
+    var prev = current >= 0 ? slides[current] : null;
+
+    // запуск зума с нуля (без перехода), затем плавное приближение
+    next.style.transition = "none";
+    next.style.transform = "scale(1)";
+    void next.offsetWidth;
+    next.style.transition = "transform " + zoomDuration + "ms linear, opacity " + FADE_TIME + "ms ease";
+    next.style.transform = "scale(" + ZOOM_TO + ")";
+    next.style.opacity = 1;
+    next.style.zIndex = 2;
+
+    if (prev && prev !== next) {
+      prev.style.zIndex = 1;
+      prev.style.opacity = 0;       // уходит плавно, продолжая приближаться
+    }
+    current = i;
+  }
+  show(0);
+  setInterval(function () { show((current + 1) % slides.length); }, SLIDE_TIME);
+
+  // Прогрев: чтобы картинки были в кэше до показа
+  BACKGROUNDS.forEach(function (s) { var im = new Image(); im.src = s; });
+
+  /* ---------- Музыка: по очереди, по кругу ---------- */
+  var audio = document.getElementById("music");
+  var idx = 0;
+  audio.volume = VOLUME;
+
+  function pickSource(list) {
+    // выбираем формат, который умеет проигрывать встроенный браузер
+    for (var i = 0; i < list.length; i++) {
+      var ext = list[i].split(".").pop();
+      var type = ext === "ogg" ? "audio/ogg; codecs=vorbis" : "audio/mpeg";
+      if (audio.canPlayType(type)) return list[i];
+    }
+    return list[0];
+  }
+  function playTrack(n) {
+    idx = n % PLAYLIST.length;
+    audio.src = pickSource(PLAYLIST[idx]);
+    var p = audio.play();
+    if (p && p.catch) p.catch(function () {
+      // если автозапуск запрещён (обычный браузер) — стартуем по первому клику
+      document.addEventListener("click", function once() {
+        document.removeEventListener("click", once);
+        audio.play();
+      });
+    });
+  }
+  audio.addEventListener("ended", function () { playTrack(idx + 1); });
+  audio.addEventListener("error", function () {
+    // если трек не загрузился — пробуем следующий, не зависаем
+    setTimeout(function () { playTrack(idx + 1); }, 1000);
+  });
+  playTrack(0);
+
+  /* ---------- Прогресс загрузки (вызывается игрой) ---------- */
+  var total = 0, needed = 0;
+  function setProgress(p) {
+    p = Math.max(0, Math.min(100, p));
+    document.getElementById("fill").style.width = p + "%";
+    document.getElementById("pct").textContent = Math.floor(p) + "%";
+  }
+  function GameDetails(servername, serverurl, mapname, maxplayers, steamid, gamemode) {
+    document.getElementById("map").textContent = mapname;
+    document.getElementById("players").textContent = maxplayers;
+    document.getElementById("steamid").textContent = steamid;
+  }
+  function SetFilesTotal(t) { total = t; }
+  function SetFilesNeeded(n) {
+    needed = n;
+    if (total > 0) setProgress((total - needed) / total * 100);
+  }
+  function DownloadingFile(name) {
+    document.getElementById("status").textContent = "Скачивается: " + name;
+  }
+  function SetStatusChanged(status) {
+    document.getElementById("status").textContent = status;
+  }
+
+  // Тест в браузере: открой loading.html?test
+  if (location.search.indexOf("test") !== -1) {
+    GameDetails("Atyrau Rp", "", "ttt_clue_2022", 32, "76561198000000000");
+    SetFilesTotal(100); var i = 100;
+    setInterval(function () { if (i > 0) { i--; SetFilesNeeded(i); DownloadingFile("file_" + i + ".vtf"); } }, 120);
+  }
+</script>
+</body>
+</html>
